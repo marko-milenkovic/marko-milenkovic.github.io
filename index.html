@@ -69,15 +69,24 @@
       // Ako video prestane da se pomera (buffer se ne menja)
       let lastTime = 0;
       setInterval(() => {
-        if (!video.paused && !video.seeking) {
+      //  if (!video.paused && !video.seeking) {
+      //    if (video.currentTime === lastTime) {
+      //     // Stoji – zamrzlo se
+      //      console.warn("Video freeze detected");
+      //      scheduleReload("Video freeze");
+      //   }
+      //    lastTime = video.currentTime;
+      //  }
+      //}, 5000); // proverava svakih 5 sekundi
+
+      if (!video.paused && !video.seeking) {
           if (video.currentTime === lastTime) {
             // Stoji – zamrzlo se
             console.warn("Video freeze detected");
             scheduleReload("Video freeze");
           }
           lastTime = video.currentTime;
-        }
-      }, 5000); // proverava svakih 5 sekundi
+      }
       startPlayer();
     </script>
   </body>
