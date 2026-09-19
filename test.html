@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Livestream Player</title>
+  <!-- Fiksirana major verzija, ne @latest -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body>
+  <!-- muted + playsinline: autoplay se inače često blokira -->
+  <video id="video" controls autoplay muted playsinline></video>
+
+  <script>
+    const video = document.getElementById("video");
+    const params = new URLSearchParams(window.location.search);
+
+    let streamUrl = null;
+    try {
+      streamUrl = atob(params.get("stream_url"));
+    } catch (e) {
+      console.error("Neispravan ili nedostajući stream_url parametar", e);
+    }
+
+    let hls = null;
+    let retryCount = 0;
+    let restartTimer = null;
+    let lastProgress = Date.now();
+
+    function destroyPlayer() {
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+    }
+
+    // Restart samo plejera (ne cele stranice), sa rastućim razmakom: 3s, 6s, 12s... max 30s
+    function scheduleRestart(reason) {
+      if (restartTimer) return; // sprečava gomilanje tajmera
+      const delay = Math.min(3000 * 2 ** retryCount, 30000);
+      retryCount++;
+      console.warn(`Restart plejera za ${delay}ms, razlog: ${reason}`);
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        startPlayer();
+      }, delay);
+    }
+
+    function startPlayer() {
+      if (!streamUrl) return;
+      destroyPlayer();
+      lastProgress = Date.now();
+
+      if (window.Hls && Hls.isSupported()) {
+        hls = new Hls({
+          // Ako namerno želiš veće kašnjenje, vrati liveSyncDuration/liveMaxLatencyDuration.
+          // Podrazumevane vrednosti (3 segmenta) startuju znatno brže.
+          maxBufferLength: 30
+        });
+
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (!data.fatal) {
+            // Nefatalne greške hls.js rešava sam, samo ih logujemo
+            console.debug("HLS non-fatal:", data.details);
+            return;
+          }
+          console.error("HLS FATAL:", data.type, data.details);
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad(); // pokušaj ponovo da učitaš
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError(); // pokušaj oporavak bez restarta
+              break;
+            default:
+              scheduleRestart("Fatal HLS error: " + data.details);
+          }
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // Safari
+        video.src = streamUrl;
+      }
+    }
+
+    video.addEventListener("error", () => scheduleRestart("Video element error"));
+
+    // Prati stvarni napredak reprodukcije
+    video.addEventListener("timeupdate", () => { lastProgress = Date.now(); });
+    video.addEventListener("playing", () => { retryCount = 0; });
+
+    // Watchdog: restart samo ako nema napretka duže vreme (20s), ne već posle 5s
+    setInterval(() => {
+      if (!video.paused && !video.seeking && Date.now() - lastProgress > 20000) {
+        scheduleRestart("Video freeze");
+      }
+    }, 5000);
+
+    startPlayer();
+  </script>
+</body>
+</html>
